@@ -1,4 +1,6 @@
 nbdev_build_docs_from_org(){
+    # extra dependency
+    pip install -qqq testpath
     local initfile=$(mktemp ~/.emacs.d/tmp.XXXXXXXX)
     local init=$(cat <<EOF
 ;; Added by Package.el.  This must come before configurations of
@@ -203,7 +205,7 @@ EOF
 
     		summary_org_header="see $title_org_source_header"
     		Tempfiles+=("${addipynb}_temp.ipynb")
-		[[ -e "${addipynb}_temp.ipynb" ]] && rm "${addipynb}_temp.ipynb"
+		#[[ -e "${addipynb}_temp.ipynb" ]] && rm "${addipynb}_temp.ipynb"
 		
 		jq -n --argjson a "{\"cells\":[{\"cell_type\":\"markdown\",\"metadata\":{},\"source\":[\"# ${title_org_header%.*}\n\",\"\n\",\"> $summary_org_header\"]},{\"cell_type\":\"code\",\"execution_count\":1,\"metadata\":{},\"outputs\":[],\"source\":[\"# default_exp ${addipynb_rel//\//.}\"]}]}" --argjson b "{${metadata_etc}}" '$a + $b'  > "${addipynb}_temp.ipynb"
 
@@ -228,6 +230,8 @@ EOF
 
 	# Check for .ob-jupyter directories related to the org-files	
 	if [[ -d "${f%/*}/.ob-jupyter" ]]; then
+	    mkdir -p "$nbs_path_full"/.ob-jupyter
+	    cp "${f%/*}/.ob-jupyter"/* "$nbs_path_full"/.ob-jupyter/
 	    Dirs+=( "${f%/*}/.ob-jupyter"); fi
     done
     mapfile -t Dirs < <(printf '%s\n' "${Dirs[@]}" | sort -u)
