@@ -74,6 +74,7 @@ EOF
     #lib_name_full=$(readlink -f "$dir"/"$lib_name")
 
     # dependencies
+    gem install bundler:2.0.2
     bundle install "${doc_path_full}"/Gemfile
     
     # Find all org-files to convert
