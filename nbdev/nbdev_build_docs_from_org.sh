@@ -1,6 +1,12 @@
 nbdev_build_docs_from_org(){
-    # extra dependency
+    # extra dependencies
     pip install -qqq testpath
+    export GEM_HOME="$HOME/gems"
+    # this order is important so that jekyll from guix is used when running docs_serve
+    export PATH="$PATH:$HOME/gems/bin"
+    export LD_LIBRARY_PATH="$GUIX_PROFILE"/lib
+    gem install bundler -v 2.0.2
+
     local initfile=$(mktemp ~/.emacs.d/tmp.XXXXXXXX)
     local init=$(cat <<EOF
 ;; Added by Package.el.  This must come before configurations of
@@ -66,6 +72,9 @@ EOF
     doc_path_full=$(readlink -f "$dir"/"$doc_path")
     lib_name="$(grep -E '^lib_name' "$dir"/settings.ini | cut -f 3 -d ' ')"
     #lib_name_full=$(readlink -f "$dir"/"$lib_name")
+
+    # dependencies
+    bundle install "${doc_path_full}"/Gemfile
     
     # Find all org-files to convert
     local -a Files=()
