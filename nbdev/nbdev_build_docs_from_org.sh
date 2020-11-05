@@ -1,11 +1,11 @@
-nbdev_build_docs_from_org(){
+nbdev_build_docs_from_org()(
     # extra dependencies
     pip install -qqq testpath
     export GEM_HOME="$HOME/gems"
     # this order is important so that jekyll from guix is used when running docs_serve
-    export PATH="$PATH:$HOME/gems/bin"
+    export PATH="$HOME/gems/bin:$PATH"
     export LD_LIBRARY_PATH="$GUIX_PROFILE"/lib
-    gem install bundler -v 2.0.2
+    gem install bundler:2.0.2
 
     local initfile=$(mktemp ~/.emacs.d/tmp.XXXXXXXX)
     local init=$(cat <<EOF
@@ -75,7 +75,15 @@ EOF
 
     # dependencies
     gem install bundler:2.0.2
-    bundle install "${doc_path_full}"/Gemfile
+    # due to warnings like "Ignoring commonmarker-0.17.13 because its extensions are not built. Try: gem pristine commonmarker --version 0.17.1" when running gem install bundler we could install those things too:
+    # gem pristine eventmachine --version 1.2.7
+    # gem pristine ffi --version 1.13.1
+    # gem pristine ffi --version 1.11.3
+    # gem pristine http_parser.rb --version 0.6.0
+    # gem pristine nokogiri --version 1.10.8
+    # gem pristine sassc --version 2.4.0
+
+    bundle install --gemfile="${doc_path_full}"/Gemfile
     
     # Find all org-files to convert
     local -a Files=()
@@ -290,5 +298,5 @@ EOF
     done
     shopt -s globstar ; sed -i 's/\/.ob-jupyter\//\/ob-jupyter\//g' "$doc_path_full"/**/*.html
     set +x
-}
+)
 nbdev_build_docs_from_org
