@@ -7,7 +7,7 @@ nbdev: $(SRC)
 	touch nbdev
 
 docs_serve: docs
-	cd docs && bundle exec jekyll serve
+	cd docs && GEM_HOME=~/gems GEM_PATH=~/gems/bin gem install bundler:2.0.2 && GEM_HOME=~/gems GEM_PATH=~/gems/bin LD_LIBRARY_PATH=~/.guix-profile/lib bundle exec jekyll serve
 
 docs: $(SRC)
 	nbdev_build_docs
