@@ -183,6 +183,7 @@ def nbdev_detach(path_nb:Param("Path to notebook"),
 
 # Cell
 import subprocess
+import os
 
 # Cell
 @call_parse
@@ -191,7 +192,7 @@ def nbdev_build_docs_from_org():
     try: path = str(Config().config_file.parent)
     except: path = str(Path.cwd())
     #script = scr + "\n" + "nbdev_build_docs_from_org " + path + "\n"
-    cmd = "bash " + scriptpath + " " + path
+    cmd = "bash " + scriptpath + " " + os.getenv("_NBDEV_ORG_BABEL_ARGS")
     subprocess.run(cmd.split())
 
 # Cell
