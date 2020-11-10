@@ -408,12 +408,17 @@ EOF
     script(){ shopt -s extglob ; mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do while read -r line ; do if [[ "$line" =~ '{% raw %}' ]] ; then CurrentRaw="${BASH_REMATCH[0]}" ; elif [[ "$line" =~ '{% endraw %}' ]] ; then if grep -q -i 'class="source_link"' <<<"$CurrentRaw"; then printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f" ; mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"$CurrentRaw" ); echo mod1 is "$mod1" ; mod2="${mod1##*/}" ; echo mod2 is "$mod2" ; mod3="${mod2%.*}" ; echo mod3 is "${mod3}" ; mod="$mod3" ; echo mod is "$mod" ; if ! grep -qF "${CurrentRaw}${BASH_REMATCH[0]}" "$doc_path"/${mod}_temp.html ; then echo could not find "${CurrentRaw}${BASH_REMATCH[0]}" in "$doc_path"/${mod}_temp.html so adding it ; echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; fi ; echo found "${CurrentRaw}${BASH_REMATCH[0]}" already in "$doc_path"/${mod}_temp.html so not adding it ; CurrentRaw="" ; fi ; else CurrentRaw+="$line" ; fi ; done < "$f" ; done ; } ;
 
     if [[ -n "${Nbdev_Build_Lib_Libs_Order[@]}" ]]; then
-	for nb in "${Nbdev_Build_Lib_Libs_Order[@]}"; do
-	    echo Converting the notebook: "$nb"
-	    nbdev_build_lib --fname "$nb" &
-	    wait
-	    [[ ! "$?" == "0" ]] && return 1
-	    done
+	# needed to remake the lib directory if it doesn't exist.
+	#nbdev_build_lib &>/dev/null
+	declare -a NBs=("${Nbdev_Build_Lib_Libs_Order[@]}")
+	for  ((i=0;i<${#NBs[@]};i++)) ; do if [[ "${#i}" -eq 1 ]] ; then mv "$nbs_path_full"/"${NBs[$i]}" "$nbs_path_full"/0"${i}"_"${NBs[$i]}" ; else mv "$nbs_path_full"/"${NBs[$i]}" "$nbs_path_full"/"${i}"_"${NBs[$i]}" ; fi ; done
+	nbdev_build_lib
+	# for nb in "${Nbdev_Build_Lib_Libs_Order[@]}"; do
+	#     echo Converting the notebook: "$nb"
+	#     nbdev_build_lib --fname "$nb" &
+	#     wait
+	#     [[ ! "$?" == "0" ]] && return 1
+	#     done
     else
 	if nbdev_build_lib; then echo Continuing with building docs
 	else
@@ -427,12 +432,13 @@ EOF
     fi
 
     if [[ -n "${Nbdev_Build_Lib_Libs_Order[@]}" ]]; then
-	for nb in "${Nbdev_Build_Lib_Libs_Order[@]}"; do
-	    echo Converting the notebook: "$nb"
-	    nbdev_build_lib --fname "$nb" &
-	    wait
-	    [[ ! "$?" == "0" ]] && return 1
-	done
+	# for nb in "${Nbdev_Build_Lib_Libs_Order[@]}"; do
+	#     echo Converting the notebook: "$nb"
+	#     nbdev_build_lib --fname "$nb" &
+	#     wait
+	#     [[ ! "$?" == "0" ]] && return 1
+	# done
+	nbdev_build_docs --force_all '*'
     else
 	cd "$dir" ; nbdev_build_docs --force_all '*'; cd -
     fi
