@@ -1,4 +1,20 @@
 nbdev_build_docs_from_org()(
+    [[ -f settings.ini ]] || { echo "Could not find settings.ini in the current directory. You must be in an nbdev git root directory to run nbdev_build_docs_from_org" && return 1 ; }
+    shopt -s extglob
+    #set -x
+    declare -a Nbdev_Build_Lib_Libs_Order=()
+    while [[ -n "$1" ]]; do
+	if [[ "$1" == "--build-libs-order" ]]; then
+	    shift 1
+	    while ([[ ! "$1" =~ ^- ]] && [[ -n "$1" ]]); do
+		Nbdev_Build_Lib_Libs_Order+=("$1")
+		shift 1
+	    done
+	fi
+	shift 1
+    done
+    echo build order is: "${Nbdev_Build_Lib_Libs_Order[@]}"
+
     # extra dependencies
     pip install -qqq testpath
     export GEM_HOME="$HOME/gems"
@@ -87,8 +103,121 @@ EOF
     
     # Find all org-files to convert
     local -a Files=()
-    mapfile -t Files < <(find "$nbs_path" -name '*.org' -type f)
+    #mapfile -t Files < <(find "$nbs_path" -name '*.org' -type f)
 
+    # Find all export statements in the org-files, and if there are exports to modules without corresponding org-files, then create a basic such org-file file.
+    shopt -s extglob
+    set +x
+    mapfile -t Files < <(find "$nbs_path" -name '*.org' -type f)
+    mapfile -t ExportFiles < <(
+	for f in "${Files[@]}"; do
+	    mapfile -t ExportLines < <( grep -E '^# export(s|i)? ' "$f")
+	    for l in "${ExportLines[@]}"; do
+		if [[ "$l" =~ ^#\ export(s|i)?\ (.*)+ ]]; then
+		    orgfile="$(dirname "$f")/${BASH_REMATCH[2]}" ; echo "$orgfile" ; fi ; done ; done | sort -u )
+    # TODO: CONTINUE: check if ExportFiles already exist, if not create basic org-file with # default_exp <module.submodule> etc.
+#     for f in "${ExportFiles[@]}"; do
+# 	if [[ ! -f "${f//./\/}".org ]]; then
+# 	    fmods="${f##*/}"
+# 	    fparentmods="${fmods%.*}"
+
+# 	    cat <<EOF > "${f//./\/}".org
+# #+PROPERTY: header-args:python :shebang "#!/usr/bin/env python3" :eval no-export :noweb no-export :mkdirp yes
+# #+PROPERTY: header-args:jupyter-python :shebang "#!/usr/bin/env python3" :eval no-export :noweb no-export :mkdirp yes
+# #+PROPERTY: header-args:bash :shebang "#!/usr/bin/env bash" :eval no-export :noweb no-export :mkdirp yes
+
+# #+TITLE: ${f##*/}
+# #+SUMMARY: The ${f##*/} module
+
+# #+BEGIN_SRC python :noweb-ref "" :session ${f##*/} :tangle ${f##*/}.py
+# # default_exp ${f##*/}
+# #+END_SRC
+# EOF
+# 	fi
+#     done
+
+    #expfile="apa/bepa.cepa.depa.fepa"
+    for expfile in "${ExportFiles[@]}"; do
+    expfileBasedir="${expfile//./\/}"
+    expfileBasedir="${expfile//./\/}"
+    expfiledir="${expfile//./\/}"
+    expfiledir="${expfiledir%/*}"
+    fparentmods="${expfile%.*}"
+    fparentmods="${fparentmods#*/}"
+
+    modpath="${expfile#$nbs_path/$lib_name}"
+    modpath="${modpath#*.}"
+	mkdir -p "$expfiledir"
+	if [[ ! -f "$expfiledir"/"${expfile##*.}" ]]; then
+	    #echo stuff > "$expfiledir"/"${expfile##*.}".org; fi
+	    expfileNext="${expfile%%/*}/${fparentmods%%.*}".org
+	    mod="${expfileNext%.org}"
+	    mod="${mod##*.}"
+	    the_modpath="${modpath%${mod}*}.$mod"
+	    the_modpath="${the_modpath#.}"
+	    the_modpath="${the_modpath//\//.}"
+
+	    # TODO: CONTINUE: should print the minimum to-the-left module
+	    #modules=${expfile##*/}
+	    modules="${expfile/\//.}"
+	    modulename="${modules%%.*}"
+	    modpath=${expfilepath}
+	    cat <<EOF > "$expfiledir"/"${expfile##*.}".org
+#+PROPERTY: header-args:python :shebang "#!/usr/bin/env python3" :eval no-export :noweb no-export :mkdirp yes
+#+PROPERTY: header-args:jupyter-python :shebang "#!/usr/bin/env python3" :eval no-export :noweb no-export :mkdirp yes
+#+PROPERTY: header-args:bash :shebang "#!/usr/bin/env bash" :eval no-export :noweb no-export :mkdirp yes
+
+#+TITLE: ${modules#*/}
+#+SUMMARY: The ${modules#*/} module
+
+#+BEGIN_SRC python :noweb-ref "" :session ${modulename} :tangle ${modulename}.py
+# default_exp ${modules#*/}
+#+END_SRC
+
+EOF
+	    unset expfileNext
+	fi
+
+	if [[ ! "$fparentmods" == "$expfile" ]] ; then
+	    while [[ -n "$fparentmods" ]] ; do
+		if [[ -n "$expfileNext" ]]; then
+		    expfileNext="${expfileNext%.*}/${fparentmods%%.*}".org
+		else
+		    expfileNext="${expfile%%/*}/${fparentmods%%.*}".org
+		fi
+		mod="${expfileNext%.org}"
+		mod="${mod##*.}"
+		the_modpath="${modpath%${mod}*}.$mod"
+		the_modpath="${the_modpath#.}"
+		the_modpath="${the_modpath//\//.}"
+		the_modpath="${the_modpath#$nbs_path.}"
+		the_modpath="${the_modpath#$lib_name.}"
+		if [[ ! -f "$expfileNext" ]] ; then
+		    #echo stuff > "$expfileNext"; fi
+		    modules=${expfileNext##*/}
+		    modulename="${modules%%.*}"
+		    cat <<EOF > "$expfileNext"
+#+PROPERTY: header-args:python :shebang "#!/usr/bin/env python3" :eval no-export :noweb no-export :mkdirp yes
+#+PROPERTY: header-args:jupyter-python :shebang "#!/usr/bin/env python3" :eval no-export :noweb no-export :mkdirp yes
+#+PROPERTY: header-args:bash :shebang "#!/usr/bin/env bash" :eval no-export :noweb no-export :mkdirp yes
+
+#+TITLE: ${the_modpath}
+#+SUMMARY: The ${the_modpath} module
+
+#+BEGIN_SRC python :noweb-ref "" :session ${modulename} :tangle ${modulename}.py
+# default_exp ${the_modpath}
+#+END_SRC
+
+EOF
+		    fi
+		if [[ ! "$fparentmods" == "${fparentmods#*.}" ]] ; then
+		    fparentmods="${fparentmods#*.}"
+		else
+		    break ; fi ; done ; fi; done
+
+    # Re-read the list of org-files.
+    mapfile -t Files < <(find "$nbs_path" -name '*.org' -type f)
+    set -x
     # Fix the src_block python to src_block jupyter-python needed for
     # ox-ipynb export, then export.
     local f fdir
@@ -244,7 +373,9 @@ EOF
 	    [[ -n "$summary_org_header" ]] && summary_org_header="> $summary_org_header"
 	    title_json="{\"cell_type\":\"markdown\",\"metadata\":{},\"source\":[\"# $title_org_header\n\",\"\n\",\"$summary_org_header\"]}"
 	    jq --argjson a "$title_json" '.cells = ([$a] + .cells)' "${f}_temp.ipynb" | sponge "${f}_temp.ipynb"
-	    jq --argjson a "$title_json" '.cells = ([$a] + .cells)' "${f}_temp.ipynb" | sponge "${f}_temp.ipynb"; fi;
+	    # removing this for testing
+	    #jq --argjson a "$title_json" '.cells = ([$a] + .cells)' "${f}_temp.ipynb" | sponge "${f}_temp.ipynb";
+	fi;
 
 	# Check for .ob-jupyter directories related to the org-files	
 	if [[ -d "${f%/*}/.ob-jupyter" ]]; then
@@ -274,13 +405,37 @@ EOF
     # source-references
     rm -r "$dir"/"$lib_name" ;
 
-    if nbdev_build_lib; then echo Continuing with building docs
+    script(){ shopt -s extglob ; mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do while read -r line ; do if [[ "$line" =~ '{% raw %}' ]] ; then CurrentRaw="${BASH_REMATCH[0]}" ; elif [[ "$line" =~ '{% endraw %}' ]] ; then if grep -q -i 'class="source_link"' <<<"$CurrentRaw"; then printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f" ; mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"$CurrentRaw" ); echo mod1 is "$mod1" ; mod2="${mod1##*/}" ; echo mod2 is "$mod2" ; mod3="${mod2%.*}" ; echo mod3 is "${mod3}" ; mod="$mod3" ; echo mod is "$mod" ; if ! grep -qF "${CurrentRaw}${BASH_REMATCH[0]}" "$doc_path"/${mod}_temp.html ; then echo could not find "${CurrentRaw}${BASH_REMATCH[0]}" in "$doc_path"/${mod}_temp.html so adding it ; echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; fi ; echo found "${CurrentRaw}${BASH_REMATCH[0]}" already in "$doc_path"/${mod}_temp.html so not adding it ; CurrentRaw="" ; fi ; else CurrentRaw+="$line" ; fi ; done < "$f" ; done ; } ;
+
+    if [[ -n "${Nbdev_Build_Lib_Libs_Order[@]}" ]]; then
+	for nb in "${Nbdev_Build_Lib_Libs_Order[@]}"; do
+	    echo Converting the notebook: "$nb"
+	    nbdev_build_lib --fname "$nb" &
+	    wait
+	    [[ ! "$?" == "0" ]] && return 1
+	    done
     else
-	Failed to build lib. Not continuing with building docs.
-	return 1
+	if nbdev_build_lib; then echo Continuing with building docs
+	else
+	    # try a second time
+	    if ! nbdev_build_lib ; then
+		echo Failed to build lib. Not continuing with building docs.
+		echo "If you are unable to build libraries with nbdev_build_lib it may be because you have internal dependencies between notebooks and nbdev_build_lib tries to build in parallel, therefore try nbdev_build_lib --fname <lib>.ipynb in the order of core libraries to libraries with the most dependencies on other modules. You can then pass --build-libs-order to this script and rerun it."
+		return 1
+	    fi
+	fi
     fi
 
-    cd "$dir" ; nbdev_build_docs ; cd -
+    if [[ -n "${Nbdev_Build_Lib_Libs_Order[@]}" ]]; then
+	for nb in "${Nbdev_Build_Lib_Libs_Order[@]}"; do
+	    echo Converting the notebook: "$nb"
+	    nbdev_build_lib --fname "$nb" &
+	    wait
+	    [[ ! "$?" == "0" ]] && return 1
+	done
+    else
+	cd "$dir" ; nbdev_build_docs --force_all '*'; cd -
+    fi
 
     # copy over any .ob-jupyter directories to jekyll docs and nbdev
     # lib directories. Since jekyll doesnt handle hidden directories
@@ -298,5 +453,22 @@ EOF
     done
     shopt -s globstar ; sed -i 's/\/.ob-jupyter\//\/ob-jupyter\//g' "$doc_path_full"/**/*.html
     set +x
+    shopt -s extglob ;
+    script
+    # mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ;
+    # CurrentRaw="" ;
+    # for f in "${DocFiles[@]}" ; do
+    # 	while read -r line ; do
+    # 	    if [[ "$line" =~ '{% raw %}' ]] ; then
+    # 		CurrentRaw="${BASH_REMATCH[0]}" ;
+    # 	    elif [[ "$line" =~ '{% endraw %}' ]] ; then
+    # 		if grep -q -i 'class="source_link"' <<<"$CurrentRaw"; then
+    # 		    mod=$(grep -oP '"http.*(?=( class="source_link"))' <<<"$CurrentRaw" );
+    # 		    mod="${mod##*/}" ;
+    # 		    mod="${mod%.*}" ;
+    # 		    mod="${mod}" ;
+    # 		    if ! grep -qF "${CurrentRaw}${BASH_REMATCH[0]}" "$doc_path"/${mod}_temp.html ;
+    # 		    then echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; fi ; CurrentRaw="" ; fi ; else CurrentRaw+="$line" ; fi ; done < "$f" ; done
+
 )
-nbdev_build_docs_from_org
+nbdev_build_docs_from_org "$@"
