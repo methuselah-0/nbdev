@@ -1,6 +1,6 @@
 nbdev_build_docs_from_org()(
-    [[ -f settings.ini ]] || { echo "Could not find settings.ini in the current directory. You must be in an nbdev git root directory to run nbdev_build_docs_from_org" && return 1 ; }
     shopt -s extglob
+    local dir nbs_path doc_path lib_name
     #set -x
     declare -a Nbdev_Build_Lib_Libs_Order=()
     while [[ -n "$1" ]]; do
@@ -10,11 +10,24 @@ nbdev_build_docs_from_org()(
 		Nbdev_Build_Lib_Libs_Order+=("$1")
 		shift 1
 	    done
+	elif [[ "$1" == "--dir" ]]; then
+	    dir="$2"
+	    shift 2
+	elif [[ "$1" == "--keep-subs" ]]; then
+	    subs=yes
+	    shift 1	    
+	else
+	    shift
 	fi
-	shift 1
     done
     echo build order is: "${Nbdev_Build_Lib_Libs_Order[@]}"
-
+    dir="${dir:-.}"
+    subs="${subs:-no}"
+    echo dir is "$dir"
+    [[ -f "${dir}"/settings.ini ]] || { echo "Could not find settings.ini in < ${dir} > or the current directory. You must be in an nbdev git root directory to run nbdev_build_docs_from_org or specify the path with --dir <path_to_nbdev_repo>" && return 1 ; }
+    cd "$dir"
+    trap "cd -" RETURN
+    trap "cd -" EXIT
     # extra dependencies
     pip install -qqq testpath
     export GEM_HOME="$HOME/gems"
@@ -57,7 +70,7 @@ nbdev_build_docs_from_org()(
    (jupyter . t)))
 (setq org-confirm-babel-evaluate nil)
 (org-babel-jupyter-override-src-block "python")
-(setq org-use-sub-superscripts "{}")
+(setq org-use-sub-superscripts nil)
 (setq geiser-default-implementation 'guile)
 (setq org-src-preserve-indentation t)
 (require 'org-re-reveal)
@@ -79,9 +92,6 @@ EOF
 	  )
     echo "$init" > "$initfile"
 
-    local dir nbs_path doc_path lib_name
-    dir="${1:-.}"
-    if [[ ! -e "${dir}/settings.ini" ]]; then echo no settings.ini found in "$dir". Exiting; fi
     nbs_path="$(grep -E '^nbs_path' "$dir"/settings.ini | cut -f 3 -d ' ')"
     nbs_path_full=$(readlink -f "$dir"/"$nbs_path")
     doc_path="$(grep -E '^doc_path' "$dir"/settings.ini | cut -f 3 -d ' ')"
@@ -277,7 +287,7 @@ EOF
 	rm "$f"; done
 
     echo CONVERTING TO ORG WITH NOWEB "${Files[@]//.org/_temp.org}"
-    emacs --batch -l "$initfile" $(printf -- '--visit %s -f org-org-export-to-org ' "${Files[@]//.org/_temp.org}") --kill
+    emacs --batch -l "$initfile" $(printf -- '--visit %s -f org-org-export-to-org ' "${Files[@]//.org/_temp.org}") --kill || { echo failed to export to org-file ; return 1 ; }
     echo DONE
 
     for f in "${Files[@]//.org/_temp.org.org}"; do
@@ -285,7 +295,7 @@ EOF
 	mv "$f" "${f%.org}"; done
     
     echo CONVERTING TO IPYNB "${Files[@]//.org/_temp.org}"
-    emacs --batch -l "$initfile" $(printf -- '--visit %s -f ox-ipynb-export-to-ipynb-file ' "${Files[@]//.org/_temp.org}") --kill
+    emacs --batch -l "$initfile" $(printf -- '--visit %s -f ox-ipynb-export-to-ipynb-file ' "${Files[@]//.org/_temp.org}") --kill  || { echo failed to export to ipynb-file ; return 1 ; }
     echo DONE
 
     # since nbdev_test_nbs or nbdev_build_lib doesn't seem to be able to pick up nbs in subdirs of doc_path
@@ -336,35 +346,35 @@ EOF
 	  )
     
     local -a Tempfiles=()    
-    echo Adding additional IPYNBS: "${AdditionalIPYNBS[@]%.*}"
-    set -x
-    for ((i=0;i<${#AdditionalIPYNBS[@]};i+=1)); do
-	addipynb="${AdditionalIPYNBS[$i]%.*}"
-	addipynb_dir="${AdditionalIPYNBS_dirs[$i]}"
-	addipynb_org="${AdditionalIPYNBS_orgs[$i]}"
-	addipynb_rel="${addipynb#$addipynb_dir/}"
-	shopt -s globstar
-    	if ! grep "# default_exp ${addipynb_rel//\//.}" &>/dev/null < <(cat "$nbs_path"/*.ipynb | jq -rs .[].cells[].source[]); then
-	    # a :tangle something.py without ipynb file shouldnt add extra .ipynb file unless we have special export X as well.
-	    if grep -E "^#\ export(i|s)?\ ${addipynb_rel//\//.}" < <(cat "$nbs_path"/*.ipynb | jq -rs .[].cells[].source[]); then
-	        title_org_header="${addipynb##*/}"
-	    	title_org_source_header=$(grep -iE '^#\+TITLE: ' "${addipynb_org}" | head -n 1 | cut -f 2- -d ' ')
+    # echo Adding additional IPYNBS: "${AdditionalIPYNBS[@]%.*}"
+    # set -x
+    # for ((i=0;i<${#AdditionalIPYNBS[@]};i+=1)); do
+    # 	addipynb="${AdditionalIPYNBS[$i]%.*}"
+    # 	addipynb_dir="${AdditionalIPYNBS_dirs[$i]}"
+    # 	addipynb_org="${AdditionalIPYNBS_orgs[$i]}"
+    # 	addipynb_rel="${addipynb#$addipynb_dir/}"
+    # 	shopt -s globstar
+    # 	if ! grep "# default_exp ${addipynb_rel//\//.}" &>/dev/null < <(cat "$nbs_path"/*.ipynb | jq -rs .[].cells[].source[]); then
+    # 	    # a :tangle something.py without ipynb file shouldnt add extra .ipynb file unless we have special export X as well.
+    # 	    if grep -E "^#\ export(i|s)?\ ${addipynb_rel//\//.}" < <(cat "$nbs_path"/*.ipynb | jq -rs .[].cells[].source[]); then
+    # 	        title_org_header="${addipynb##*/}"
+    # 	    	title_org_source_header=$(grep -iE '^#\+TITLE: ' "${addipynb_org}" | head -n 1 | cut -f 2- -d ' ')
 
-    		summary_org_header="see $title_org_source_header"
-    		Tempfiles+=("${addipynb}_temp.ipynb")
-		#[[ -e "${addipynb}_temp.ipynb" ]] && rm "${addipynb}_temp.ipynb"
+    # 		summary_org_header="see $title_org_source_header"
+    # 		Tempfiles+=("${addipynb}_temp.ipynb")
+    # 		#[[ -e "${addipynb}_temp.ipynb" ]] && rm "${addipynb}_temp.ipynb"
 		
-		jq -n --argjson a "{\"cells\":[{\"cell_type\":\"markdown\",\"metadata\":{},\"source\":[\"# ${title_org_header%.*}\n\",\"\n\",\"> $summary_org_header\"]},{\"cell_type\":\"code\",\"execution_count\":1,\"metadata\":{},\"outputs\":[],\"source\":[\"# default_exp ${addipynb_rel//\//.}\"]}]}" --argjson b "{${metadata_etc}}" '$a + $b'  > "${addipynb}_temp.ipynb"
+    # 		jq -n --argjson a "{\"cells\":[{\"cell_type\":\"markdown\",\"metadata\":{},\"source\":[\"# ${title_org_header%.*}\n\",\"\n\",\"> $summary_org_header\"]},{\"cell_type\":\"code\",\"execution_count\":1,\"metadata\":{},\"outputs\":[],\"source\":[\"# default_exp ${addipynb_rel//\//.}\"]}]}" --argjson b "{${metadata_etc}}" '$a + $b'  > "${addipynb}_temp.ipynb"
 
-		# add a link to it in the path to the notebooks (nbs_path)
-		addipynb_full=$(readlink -f "$addipynb"_temp.ipynb)
-     		rel_path="${addipynb_full#$nbs_path_full/}"
-     		ln -s "${rel_path}" "${nbs_path}"/ ; fi; fi; done
-    set +x
+    # 		# add a link to it in the path to the notebooks (nbs_path)
+    # 		addipynb_full=$(readlink -f "$addipynb"_temp.ipynb)
+    #  		rel_path="${addipynb_full#$nbs_path_full/}"
+    #  		ln -s "${rel_path}" "${nbs_path}"/ ; fi; fi; done
+    # set +x
     
-    echo prepending titles and summaries
+    #echo prepending titles and summaries
     # Prepend titles and summaries
-    local -a Dirs=()    
+    local -a Dirs=()
     for f in "${Files[@]%.org}"; do
 	local title_org_header=""
 	title_org_header=$(grep -iE '^#\+TITLE: ' "${f}.org" | head -n 1 | cut -f 2- -d ' ')
@@ -405,14 +415,16 @@ EOF
     # source-references
     rm -r "$dir"/"$lib_name" ;
 
-    script(){ shopt -s extglob ; mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do while read -r line ; do if [[ "$line" =~ '{% raw %}' ]] ; then CurrentRaw="${BASH_REMATCH[0]}" ; elif [[ "$line" =~ '{% endraw %}' ]] ; then if grep -q -i 'class="source_link"' <<<"$CurrentRaw"; then printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f" ; mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"$CurrentRaw" ); echo mod1 is "$mod1" ; mod2="${mod1##*/}" ; echo mod2 is "$mod2" ; mod3="${mod2%.*}" ; echo mod3 is "${mod3}" ; mod="$mod3" ; echo mod is "$mod" ; if ! grep -qF "${CurrentRaw}${BASH_REMATCH[0]}" "$doc_path"/${mod}_temp.html ; then echo could not find "${CurrentRaw}${BASH_REMATCH[0]}" in "$doc_path"/${mod}_temp.html so adding it ; echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; fi ; echo found "${CurrentRaw}${BASH_REMATCH[0]}" already in "$doc_path"/${mod}_temp.html so not adding it ; CurrentRaw="" ; fi ; else CurrentRaw+="$line" ; fi ; done < "$f" ; done ; } ;
+    script(){ shopt -s extglob ; mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do if [[ "$subs" == no ]]; then  sed -i -e 's/<sub>/_/g' -e  's/<\/sub>//g' "$f" ; fi ; while read -r line ; do if [[ "$line" =~ '{% raw %}' ]] ; then CurrentRaw="${BASH_REMATCH[0]}" ; elif [[ "$line" =~ '{% endraw %}' ]] ; then if testfile=$(grep -iPo '(?<=>&quot;pytest ).+(?=.py&quot;<)' < <(grep -E '<div class="input_area">.*subprocess.*check_output' <<<"${CurrentRaw//$'\n'/}")) ; then for ef in "${ExportFiles[@]}" ; do if [[ "$ef" =~ "${testfile//\//.}"$ ]]; then mod="${ef##*.}"; declare -p CurrentRaw > /tmp/debug ; echo "${CurrentRaw}{% endraw %}" >> "$doc_path"/"${mod}"_temp.html ; fi ; done ; elif grep -q -i 'class="source_link"' <<<"${CurrentRaw//$'\n'/}"; then printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f" ; mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"${CurrentRaw//$'\n'/}" ); echo mod1 is "$mod1" ; mod2="${mod1##*/}" ; echo mod2 is "$mod2" ; mod3="${mod2%.*}" ; echo mod3 is "${mod3}" ; mod="$mod3" ; echo mod is "$mod" ; if ! grep -qF "${CurrentRaw//$'\n'/}${BASH_REMATCH[0]}" < <(< "$doc_path"/${mod}_temp.html tr -d $'\n') ; then echo could not find "${CurrentRaw}${BASH_REMATCH[0]}" in "$doc_path"/${mod}_temp.html so adding it ; echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; fi ; echo found "${CurrentRaw}${BASH_REMATCH[0]}" already in "$doc_path"/${mod}_temp.html so not adding it ; CurrentRaw="" ; fi ; else CurrentRaw+="$line"$'\n' ; fi ; done < "$f" ; done ; } ;
 
     if [[ -n "${Nbdev_Build_Lib_Libs_Order[@]}" ]]; then
 	# needed to remake the lib directory if it doesn't exist.
 	#nbdev_build_lib &>/dev/null
 	declare -a NBs=("${Nbdev_Build_Lib_Libs_Order[@]}")
 	for  ((i=0;i<${#NBs[@]};i++)) ; do if [[ "${#i}" -eq 1 ]] ; then mv "$nbs_path_full"/"${NBs[$i]}" "$nbs_path_full"/0"${i}"_"${NBs[$i]}" ; else mv "$nbs_path_full"/"${NBs[$i]}" "$nbs_path_full"/"${i}"_"${NBs[$i]}" ; fi ; done
-	nbdev_build_lib
+
+	if nbdev_build_lib; then
+	    rm "$doc_path"/*_temp.html; fi
 	# for nb in "${Nbdev_Build_Lib_Libs_Order[@]}"; do
 	#     echo Converting the notebook: "$nb"
 	#     nbdev_build_lib --fname "$nb" &
@@ -420,7 +432,9 @@ EOF
 	#     [[ ! "$?" == "0" ]] && return 1
 	#     done
     else
-	if nbdev_build_lib; then echo Continuing with building docs
+	if nbdev_build_lib; then
+	    echo Continuing with building docs
+	    rm "$doc_path"/*_temp.html
 	else
 	    # try a second time
 	    if ! nbdev_build_lib ; then
@@ -428,6 +442,7 @@ EOF
 		echo "If you are unable to build libraries with nbdev_build_lib it may be because you have internal dependencies between notebooks and nbdev_build_lib tries to build in parallel, therefore try nbdev_build_lib --fname <lib>.ipynb in the order of core libraries to libraries with the most dependencies on other modules. You can then pass --build-libs-order to this script and rerun it."
 		return 1
 	    fi
+	    rm "$doc_path"/*_temp.html
 	fi
     fi
 
@@ -438,9 +453,13 @@ EOF
 	#     wait
 	#     [[ ! "$?" == "0" ]] && return 1
 	# done
-	nbdev_build_docs --force_all '*'
-    else
-	cd "$dir" ; nbdev_build_docs --force_all '*'; cd -
+	if ! nbdev_build_docs --force_all '*'; then
+	    echo failed building docs
+	    return 1
+	fi
+    elif ! nbdev_build_docs --force_all '*'; then
+	echo failed building docs
+	return 1
     fi
 
     # copy over any .ob-jupyter directories to jekyll docs and nbdev
