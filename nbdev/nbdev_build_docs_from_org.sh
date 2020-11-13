@@ -1,6 +1,6 @@
 nbdev_build_docs_from_org()(
     shopt -s extglob
-    local dir nbs_path doc_path lib_name
+    local dir nbs_path doc_path lib_name metadatavalue nbformat_minor_value subs
     #set -x
     declare -a Nbdev_Build_Lib_Libs_Order=()
     while [[ -n "$1" ]]; do
@@ -13,6 +13,12 @@ nbdev_build_docs_from_org()(
 	elif [[ "$1" == "--dir" ]]; then
 	    dir="$2"
 	    shift 2
+	elif [[ "$1" == "--metadata-value" ]]; then
+	    metadatavalue="$2"
+	    shift 2
+	elif [[ "$1" == "--nbformat_minor" ]]; then
+	    nbformat_minor_value="$2"
+	    shift 2
 	elif [[ "$1" == "--keep-subs" ]]; then
 	    subs=yes
 	    shift 1	    
@@ -23,11 +29,15 @@ nbdev_build_docs_from_org()(
     echo build order is: "${Nbdev_Build_Lib_Libs_Order[@]}"
     dir="${dir:-.}"
     subs="${subs:-no}"
+    nbformat_minor_value="${nbformat_minor_value:-1}"
+    echo subs is "$subs"
+    echo nbformat_minor is "$nbformat_minor_value"
     echo dir is "$dir"
     [[ -f "${dir}"/settings.ini ]] || { echo "Could not find settings.ini in < ${dir} > or the current directory. You must be in an nbdev git root directory to run nbdev_build_docs_from_org or specify the path with --dir <path_to_nbdev_repo>" && return 1 ; }
+    startdir="$(pwd)"
     cd "$dir"
-    trap "cd -" RETURN
-    trap "cd -" EXIT
+    trap "cd $startdir" RETURN
+    trap "cd $startdir" EXIT
     # extra dependencies
     pip install -qqq testpath
     export GEM_HOME="$HOME/gems"
@@ -311,6 +321,14 @@ EOF
      	    rel_path="${f_full#$nbs_path_full/}"
      	    ln -s "${rel_path}" "${nbs_path}"/
 	}
+	# Fix the metadata
+	key="metadata"
+	value='{"kernelspec":{"display_name":"Python 3","language":"/gnu/store/11l2qmzfgsp7k345mv6x1vn64q8330kw-python-wrapper-3.8.2/bin/python","name":"python3"},"language_info":{"codemirror_mode":{"name":"ipython","version":3},"file_extension":".py","mimetype":"text/x-python","name":"python","nbconvert_exporter":"python","pygments_lexer":"ipython3","version":"3.8.2"},"org":null}'
+	value="${metadatavalue:-$value}"
+	jq -Mcn --unbuffered --arg k "$key" --argjson v "$value" --argjson o "$(jq -c . $f)" ' $o + { ( $k ) : $v } ' | sponge "$f"
+	key=nbformat_minor
+	value="${nbformat_minor_value}"
+	jq -Mcn --unbuffered --arg k "$key" --argjson v "$value" --argjson o "$(jq -c . $f)" ' $o + { ( $k ) : $v } ' | sponge "$f"
     done
     echo "...DONE"
     set +x
@@ -415,7 +433,8 @@ EOF
     # source-references
     rm -r "$dir"/"$lib_name" ;
 
-    script(){ shopt -s extglob ; mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do if [[ "$subs" == no ]]; then  sed -i -e 's/<sub>/_/g' -e  's/<\/sub>//g' "$f" ; fi ; while read -r line ; do if [[ "$line" =~ '{% raw %}' ]] ; then CurrentRaw="${BASH_REMATCH[0]}" ; elif [[ "$line" =~ '{% endraw %}' ]] ; then if testfile=$(grep -iPo '(?<=>&quot;pytest ).+(?=.py&quot;<)' < <(grep -E '<div class="input_area">.*subprocess.*check_output' <<<"${CurrentRaw//$'\n'/}")) ; then for ef in "${ExportFiles[@]}" ; do if [[ "$ef" =~ "${testfile//\//.}"$ ]]; then mod="${ef##*.}"; declare -p CurrentRaw > /tmp/debug ; echo "${CurrentRaw}{% endraw %}" >> "$doc_path"/"${mod}"_temp.html ; fi ; done ; elif grep -q -i 'class="source_link"' <<<"${CurrentRaw//$'\n'/}"; then printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f" ; mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"${CurrentRaw//$'\n'/}" ); echo mod1 is "$mod1" ; mod2="${mod1##*/}" ; echo mod2 is "$mod2" ; mod3="${mod2%.*}" ; echo mod3 is "${mod3}" ; mod="$mod3" ; echo mod is "$mod" ; if ! grep -qF "${CurrentRaw//$'\n'/}${BASH_REMATCH[0]}" < <(< "$doc_path"/${mod}_temp.html tr -d $'\n') ; then echo could not find "${CurrentRaw}${BASH_REMATCH[0]}" in "$doc_path"/${mod}_temp.html so adding it ; echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; fi ; echo found "${CurrentRaw}${BASH_REMATCH[0]}" already in "$doc_path"/${mod}_temp.html so not adding it ; CurrentRaw="" ; fi ; else CurrentRaw+="$line"$'\n' ; fi ; done < "$f" ; done ; } ;
+    #script(){ shopt -s extglob ; mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do if [[ "$subs" == no ]]; then  sed -i -e 's/<sub>/_/g' -e  's/<\/sub>//g' "$f" ; fi ; while read -r line ; do if [[ "$line" =~ '{% raw %}' ]] ; then CurrentRaw="${BASH_REMATCH[0]}" ; elif [[ "$line" =~ '{% endraw %}' ]] ; then if testfile=$(grep -iPo '(?<=>&quot;pytest ).+(?=.py&quot;<)' < <(grep -E '<div class="input_area">.*subprocess.*check_output' <<<"${CurrentRaw//$'\n'/}")) ; then for ef in "${ExportFiles[@]}" ; do if [[ "$ef" =~ "${testfile//\//.}"$ ]]; then mod="${ef##*.}"; declare -p CurrentRaw > /tmp/debug ; echo "${CurrentRaw}{% endraw %}" >> "$doc_path"/"${mod}"_temp.html ; fi ; done ; elif grep -q -i 'class="source_link"' <<<"${CurrentRaw//$'\n'/}"; then printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f" ; mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"${CurrentRaw//$'\n'/}" ); echo mod1 is "$mod1" ; mod2="${mod1##*/}" ; echo mod2 is "$mod2" ; mod3="${mod2%.*}" ; echo mod3 is "${mod3}" ; mod="$mod3" ; echo mod is "$mod" ; if ! grep -qF "${CurrentRaw//$'\n'/}${BASH_REMATCH[0]}" < <(< "$doc_path"/${mod}_temp.html tr -d $'\n') ; then echo could not find "${CurrentRaw}${BASH_REMATCH[0]}" in "$doc_path"/${mod}_temp.html so adding it ; echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; fi ; echo found "${CurrentRaw}${BASH_REMATCH[0]}" already in "$doc_path"/${mod}_temp.html so not adding it ; CurrentRaw="" ; fi ; else CurrentRaw+="$line"$'\n' ; fi ; done < "$f" ; done ; } ;
+    clean_fix_script(){ shopt -s extglob ; mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do HLevel="" ; declare -i LineNum=0 ; declare -i CurrentRawStartLineNum=0 ; declare -i CurrentRawEndLineNum=0 ; while read -r line ; do LineNum+=1 ; if hlevel=$(grep -oP '(?<=(^<h))[0-9](?=( id=\".*<a class=\"anchor-link\" href=\"))' <<<"$line") ; then HLevel="$hlevel" ; fi ; if [[ "$line" =~ '{% raw %}' ]] ; then CurrentRaw="${BASH_REMATCH[0]}" ; CurrentRawStartLineNum=$LineNum ; elif [[ "$line" =~ '{% endraw %}' ]] ; then CurrentRawEndLineNum="$LineNum" ; if testfile=$(grep -iPo '(?<=>&quot;pytest ).+(?=.py&quot;<)' < <(grep -E '<div class="input_area">.*subprocess.*check_output' <<<"${CurrentRaw//$'\n'/}")) ; then for ef in "${ExportFiles[@]}" ; do if [[ "$ef" =~ "${testfile//\//.}"$ ]]; then mod="${ef##*.}"; declare -p CurrentRaw > /tmp/debug ; echo "${CurrentRaw}{% endraw %}" >> "$doc_path"/"${mod}"_temp.html ; fi ; done ; elif grep -q -i 'class="source_link"' <<<"${CurrentRaw//$'\n'/}"; then printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f" ; mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"${CurrentRaw//$'\n'/}" ); echo mod1 is "$mod1" ; mod2="${mod1##*/}" ; echo mod2 is "$mod2" ; mod3="${mod2%.*}" ; echo mod3 is "${mod3}" ; mod="$mod3" ; echo mod is "$mod" ; if ! grep -qF "${CurrentRaw//$'\n'/}${BASH_REMATCH[0]}" < <(< "$doc_path"/${mod}_temp.html tr -d $'\n') ; then echo could not find "${CurrentRaw}${BASH_REMATCH[0]}" in "$doc_path"/${mod}_temp.html so adding it ; echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; declare -i NewHLevel=$((HLevel+1)) ; echo Changing HLevel in original file "$f" to current HLevel $HLevel plus 1 $NewHLevel ; sed -i "$CurrentRawStartLineNum,$CurrentRawEndLineNum s/<h[0-9] id=\"/<h$NewHLevel id=\"/g" "$f" ; sed -i "$CurrentRawStartLineNum,$CurrentRawEndLineNum s/<\/a><\/h[0-9]>/<\/a><\/h$NewHLevel>/g" "$f"; fi ; echo found "${CurrentRaw}${BASH_REMATCH[0]}" already in "$doc_path"/${mod}_temp.html so not adding it ; CurrentRaw="" ; fi ; else CurrentRaw+="$line"$'\n' ; fi ; done < "$f" ; done ; }
 
     if [[ -n "${Nbdev_Build_Lib_Libs_Order[@]}" ]]; then
 	# needed to remake the lib directory if it doesn't exist.
@@ -423,7 +442,7 @@ EOF
 	declare -a NBs=("${Nbdev_Build_Lib_Libs_Order[@]}")
 	for  ((i=0;i<${#NBs[@]};i++)) ; do if [[ "${#i}" -eq 1 ]] ; then mv "$nbs_path_full"/"${NBs[$i]}" "$nbs_path_full"/0"${i}"_"${NBs[$i]}" ; else mv "$nbs_path_full"/"${NBs[$i]}" "$nbs_path_full"/"${i}"_"${NBs[$i]}" ; fi ; done
 
-	if nbdev_build_lib; then
+	if (nbdev_build_lib); then
 	    rm "$doc_path"/*_temp.html; fi
 	# for nb in "${Nbdev_Build_Lib_Libs_Order[@]}"; do
 	#     echo Converting the notebook: "$nb"
@@ -432,12 +451,12 @@ EOF
 	#     [[ ! "$?" == "0" ]] && return 1
 	#     done
     else
-	if nbdev_build_lib; then
+	if (nbdev_build_lib); then
 	    echo Continuing with building docs
 	    rm "$doc_path"/*_temp.html
 	else
 	    # try a second time
-	    if ! nbdev_build_lib ; then
+	    if ! (nbdev_build_lib) ; then
 		echo Failed to build lib. Not continuing with building docs.
 		echo "If you are unable to build libraries with nbdev_build_lib it may be because you have internal dependencies between notebooks and nbdev_build_lib tries to build in parallel, therefore try nbdev_build_lib --fname <lib>.ipynb in the order of core libraries to libraries with the most dependencies on other modules. You can then pass --build-libs-order to this script and rerun it."
 		return 1
@@ -453,15 +472,38 @@ EOF
 	#     wait
 	#     [[ ! "$?" == "0" ]] && return 1
 	# done
-	if ! nbdev_build_docs --force_all '*'; then
-	    echo failed building docs
-	    return 1
+
+	# undo earlier changes to see if it fixes the nbdev_build_docs bug
+	unset LD_LIBRARY_PATH
+	unset GEM_HOME
+	#PATH="$HOME/gems/bin:$PATH"
+	PATH="${PATH#$HOME/gems/bin:}"
+
+	# this cd is apparently necessary when exporting classes
+	cd "$nbs_path"	
+	if ! (nbdev_build_docs --force_all '*'); then
+	    echo failed building docs, trying again after some mv AND some cd
+	    #echo some weird bug, mv'ing 1 file should be sufficient though
+	    set -x
+	    for  ((i=0;i<${#NBs[@]};i++)) ; do
+		if [[ "${#i}" -eq 1 ]] ; then
+		    mv "$nbs_path_full"/0"${i}"_"${NBs[$i]}" "$nbs_path_full"/0"${i}"_"${NBs[$i]}"_0123456789
+		    mv "$nbs_path_full"/0"${i}"_"${NBs[$i]}"_0123456789 "$nbs_path_full"/0"${i}"_"${NBs[$i]}"
+		    break
+		else
+		    mv "$nbs_path_full"/"${i}"_"${NBs[$i]}" "$nbs_path_full"/"${i}"_"${NBs[$i]}"_0123456789
+		    mv "$nbs_path_full"/"${i}"_"${NBs[$i]}"_0123456789 "$nbs_path_full"/"${i}"_"${NBs[$i]}"
+		fi ; done
+	    set +x
+	    if ! (nbdev_build_docs --force_all '*'); then
+		return 1
+	    fi
 	fi
-    elif ! nbdev_build_docs --force_all '*'; then
+    elif ! (nbdev_build_docs --force_all '*'); then
 	echo failed building docs
 	return 1
     fi
-
+    cd "$dir"
     # copy over any .ob-jupyter directories to jekyll docs and nbdev
     # lib directories. Since jekyll doesnt handle hidden directories
     # (starting with '.') we fix that in this process.
@@ -478,8 +520,12 @@ EOF
     done
     shopt -s globstar ; sed -i 's/\/.ob-jupyter\//\/ob-jupyter\//g' "$doc_path_full"/**/*.html
     set +x
-    shopt -s extglob ;
-    script
+    set -x
+    pwd
+    cd "$startdir"
+    clean_fix_script
+    #shopt -s extglob ; mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do HLevel="" ; declare -i LineNum=0 ; declare -i CurrentRawStartLineNum=0 ; declare -i CurrentRawEndLineNum=0 ; while read -r line ; do LineNum+=1 ; if hlevel=$(grep -oP '(?<=(^<h))[0-9](?=( id=\".*<a class=\"anchor-link\" href=\"))' <<<"$line") ; then HLevel="$hlevel" ; fi ; if [[ "$line" =~ '{% raw %}' ]] ; then CurrentRaw="${BASH_REMATCH[0]}" ; CurrentRawStartLineNum=$LineNum ; elif [[ "$line" =~ '{% endraw %}' ]] ; then CurrentRawEndLineNum="$LineNum" ; if testfile=$(grep -iPo '(?<=>&quot;pytest ).+(?=.py&quot;<)' < <(grep -E '<div class="input_area">.*subprocess.*check_output' <<<"${CurrentRaw//$'\n'/}")) ; then for ef in "${ExportFiles[@]}" ; do if [[ "$ef" =~ "${testfile//\//.}"$ ]]; then mod="${ef##*.}"; declare -p CurrentRaw > /tmp/debug ; echo "${CurrentRaw}{% endraw %}" >> "$doc_path"/"${mod}"_temp.html ; fi ; done ; elif grep -q -i 'class="source_link"' <<<"${CurrentRaw//$'\n'/}"; then printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f" ; mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"${CurrentRaw//$'\n'/}" ); echo mod1 is "$mod1" ; mod2="${mod1##*/}" ; echo mod2 is "$mod2" ; mod3="${mod2%.*}" ; echo mod3 is "${mod3}" ; mod="$mod3" ; echo mod is "$mod" ; if ! grep -qF "${CurrentRaw//$'\n'/}${BASH_REMATCH[0]}" < <(< "$doc_path"/${mod}_temp.html tr -d $'\n') ; then echo could not find "${CurrentRaw}${BASH_REMATCH[0]}" in "$doc_path"/${mod}_temp.html so adding it ; echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; declare -i NewHLevel=$((HLevel+1)) ; echo Changing HLevel in original file "$f" to current HLevel $HLevel plus 1 $NewHLevel ; sed -i "$CurrentRawStartLineNum,$CurrentRawEndLineNum s/<h[0-9] id=\"/<h$NewHLevel id=\"/g" "$f" ; sed -i "$CurrentRawStartLineNum,$CurrentRawEndLineNum s/<\/a><\/h[0-9]>/<\/a><\/h$NewHLevel>/g" "$f"; fi ; echo found "${CurrentRaw}${BASH_REMATCH[0]}" already in "$doc_path"/${mod}_temp.html so not adding it ; CurrentRaw="" ; fi ; else CurrentRaw+="$line"$'\n' ; fi ; done < "$f" ; done
+    mapfile -t DocFiles < <(find "$doc_path_full" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do if [[ "$subs" == "no" ]]; then  sed -i -e 's/<sub>/_/g' -e  's/<\/sub>//g' "$f" ; fi ; done    
     # mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ;
     # CurrentRaw="" ;
     # for f in "${DocFiles[@]}" ; do
