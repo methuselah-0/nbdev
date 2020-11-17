@@ -19,13 +19,17 @@ nbdev_build_docs_from_org()(
 	elif [[ "$1" == "--nbformat_minor" ]]; then
 	    nbformat_minor_value="$2"
 	    shift 2
+	elif [[ "$1" == "--git-src-prefix" ]]; then
+	    git_src_prefix="$2"
+	    shift 2
 	elif [[ "$1" == "--keep-subs" ]]; then
 	    subs=yes
 	    shift 1	    
 	else
 	    shift
 	fi
-    done
+    done    
+    echo git_src_prefix is "$git_src_prefix"
     echo build order is: "${Nbdev_Build_Lib_Libs_Order[@]}"
     dir="${dir:-.}"
     subs="${subs:-no}"
@@ -520,12 +524,19 @@ EOF
     done
     shopt -s globstar ; sed -i 's/\/.ob-jupyter\//\/ob-jupyter\//g' "$doc_path_full"/**/*.html
     set +x
-    set -x
     pwd
     cd "$startdir"
     clean_fix_script
     #shopt -s extglob ; mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do HLevel="" ; declare -i LineNum=0 ; declare -i CurrentRawStartLineNum=0 ; declare -i CurrentRawEndLineNum=0 ; while read -r line ; do LineNum+=1 ; if hlevel=$(grep -oP '(?<=(^<h))[0-9](?=( id=\".*<a class=\"anchor-link\" href=\"))' <<<"$line") ; then HLevel="$hlevel" ; fi ; if [[ "$line" =~ '{% raw %}' ]] ; then CurrentRaw="${BASH_REMATCH[0]}" ; CurrentRawStartLineNum=$LineNum ; elif [[ "$line" =~ '{% endraw %}' ]] ; then CurrentRawEndLineNum="$LineNum" ; if testfile=$(grep -iPo '(?<=>&quot;pytest ).+(?=.py&quot;<)' < <(grep -E '<div class="input_area">.*subprocess.*check_output' <<<"${CurrentRaw//$'\n'/}")) ; then for ef in "${ExportFiles[@]}" ; do if [[ "$ef" =~ "${testfile//\//.}"$ ]]; then mod="${ef##*.}"; declare -p CurrentRaw > /tmp/debug ; echo "${CurrentRaw}{% endraw %}" >> "$doc_path"/"${mod}"_temp.html ; fi ; done ; elif grep -q -i 'class="source_link"' <<<"${CurrentRaw//$'\n'/}"; then printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f" ; mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"${CurrentRaw//$'\n'/}" ); echo mod1 is "$mod1" ; mod2="${mod1##*/}" ; echo mod2 is "$mod2" ; mod3="${mod2%.*}" ; echo mod3 is "${mod3}" ; mod="$mod3" ; echo mod is "$mod" ; if ! grep -qF "${CurrentRaw//$'\n'/}${BASH_REMATCH[0]}" < <(< "$doc_path"/${mod}_temp.html tr -d $'\n') ; then echo could not find "${CurrentRaw}${BASH_REMATCH[0]}" in "$doc_path"/${mod}_temp.html so adding it ; echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; declare -i NewHLevel=$((HLevel+1)) ; echo Changing HLevel in original file "$f" to current HLevel $HLevel plus 1 $NewHLevel ; sed -i "$CurrentRawStartLineNum,$CurrentRawEndLineNum s/<h[0-9] id=\"/<h$NewHLevel id=\"/g" "$f" ; sed -i "$CurrentRawStartLineNum,$CurrentRawEndLineNum s/<\/a><\/h[0-9]>/<\/a><\/h$NewHLevel>/g" "$f"; fi ; echo found "${CurrentRaw}${BASH_REMATCH[0]}" already in "$doc_path"/${mod}_temp.html so not adding it ; CurrentRaw="" ; fi ; else CurrentRaw+="$line"$'\n' ; fi ; done < "$f" ; done
-    mapfile -t DocFiles < <(find "$doc_path_full" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do if [[ "$subs" == "no" ]]; then  sed -i -e 's/<sub>/_/g' -e  's/<\/sub>//g' "$f" ; fi ; done    
+    mapfile -t DocFiles < <(find "$doc_path_full" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do if [[ "$subs" == "no" ]]; then  sed -i -e 's/<sub>/_/g' -e  's/<\/sub>//g' "$f" ; fi ; done
+    str2arr(){ local string="$1" ; [[ "${string}" =~ ${string//?/(.)} ]]; local -a arr=("${BASH_REMATCH[@]:1}"); printf '%s' "(${arr[*]@Q})" ; }
+    sed_esc_rep(){ printf '%s' "${1}" | sed -e 's/[\/&]/\\&/g' ;}
+
+    for f in "${DocFiles[@]}"; do
+	libname="$lib_name"
+	git_src_prefix="${git_src_prefix%/}/" ; rep=$(sed_esc_rep "$git_src_prefix") ; sed -i -e "s/<\/code><a href=\"\($libname.*\.py#L[0-9]\+\)\" class=\"source_link\"/<\/code><a href=\"$rep\1\" class=\"source_link\"/g" "$f"
+    done
+    
     # mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ;
     # CurrentRaw="" ;
     # for f in "${DocFiles[@]}" ; do
