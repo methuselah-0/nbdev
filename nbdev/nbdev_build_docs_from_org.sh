@@ -530,13 +530,78 @@ EOF
     #shopt -s extglob ; mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do HLevel="" ; declare -i LineNum=0 ; declare -i CurrentRawStartLineNum=0 ; declare -i CurrentRawEndLineNum=0 ; while read -r line ; do LineNum+=1 ; if hlevel=$(grep -oP '(?<=(^<h))[0-9](?=( id=\".*<a class=\"anchor-link\" href=\"))' <<<"$line") ; then HLevel="$hlevel" ; fi ; if [[ "$line" =~ '{% raw %}' ]] ; then CurrentRaw="${BASH_REMATCH[0]}" ; CurrentRawStartLineNum=$LineNum ; elif [[ "$line" =~ '{% endraw %}' ]] ; then CurrentRawEndLineNum="$LineNum" ; if testfile=$(grep -iPo '(?<=>&quot;pytest ).+(?=.py&quot;<)' < <(grep -E '<div class="input_area">.*subprocess.*check_output' <<<"${CurrentRaw//$'\n'/}")) ; then for ef in "${ExportFiles[@]}" ; do if [[ "$ef" =~ "${testfile//\//.}"$ ]]; then mod="${ef##*.}"; declare -p CurrentRaw > /tmp/debug ; echo "${CurrentRaw}{% endraw %}" >> "$doc_path"/"${mod}"_temp.html ; fi ; done ; elif grep -q -i 'class="source_link"' <<<"${CurrentRaw//$'\n'/}"; then printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f" ; mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"${CurrentRaw//$'\n'/}" ); echo mod1 is "$mod1" ; mod2="${mod1##*/}" ; echo mod2 is "$mod2" ; mod3="${mod2%.*}" ; echo mod3 is "${mod3}" ; mod="$mod3" ; echo mod is "$mod" ; if ! grep -qF "${CurrentRaw//$'\n'/}${BASH_REMATCH[0]}" < <(< "$doc_path"/${mod}_temp.html tr -d $'\n') ; then echo could not find "${CurrentRaw}${BASH_REMATCH[0]}" in "$doc_path"/${mod}_temp.html so adding it ; echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; declare -i NewHLevel=$((HLevel+1)) ; echo Changing HLevel in original file "$f" to current HLevel $HLevel plus 1 $NewHLevel ; sed -i "$CurrentRawStartLineNum,$CurrentRawEndLineNum s/<h[0-9] id=\"/<h$NewHLevel id=\"/g" "$f" ; sed -i "$CurrentRawStartLineNum,$CurrentRawEndLineNum s/<\/a><\/h[0-9]>/<\/a><\/h$NewHLevel>/g" "$f"; fi ; echo found "${CurrentRaw}${BASH_REMATCH[0]}" already in "$doc_path"/${mod}_temp.html so not adding it ; CurrentRaw="" ; fi ; else CurrentRaw+="$line"$'\n' ; fi ; done < "$f" ; done
     mapfile -t DocFiles < <(find "$doc_path_full" -iname '*_temp.html') ; CurrentRaw="" ; for f in "${DocFiles[@]}" ; do if [[ "$subs" == "no" ]]; then  sed -i -e 's/<sub>/_/g' -e  's/<\/sub>//g' "$f" ; fi ; done
     str2arr(){ local string="$1" ; [[ "${string}" =~ ${string//?/(.)} ]]; local -a arr=("${BASH_REMATCH[@]:1}"); printf '%s' "(${arr[*]@Q})" ; }
-    sed_esc_rep(){ printf '%s' "${1}" | sed -e 's/[\/&]/\\&/g' ;}
-
+    sed_esc_rep(){ printf '%s' "${1}" | sed -e 's/[\/&]/\\&/g' ;}    
     for f in "${DocFiles[@]}"; do
 	libname="$lib_name"
 	git_src_prefix="${git_src_prefix%/}/" ; rep=$(sed_esc_rep "$git_src_prefix") ; sed -i -e "s/<\/code><a href=\"\($libname.*\.py#L[0-9]\+\)\" class=\"source_link\"/<\/code><a href=\"$rep\1\" class=\"source_link\"/g" "$f"
     done
-    
+
+    clean_fix_script2(){ 
+	shopt -s extglob;
+	mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html');
+	CurrentRaw="";
+	
+	declare -a Finished=()
+	declare -i total=${#DocFiles[@]}
+	declare -i CurrentlyFinished=0
+	
+	check(){
+	    for f in "${DocFiles[@]}";
+	    do
+		for ((i=0;i<=${#Finished[@]};i++)); do
+		    if [[ "$f" == "${Finished[$i]}" ]]; then
+			continue 2
+		    fi
+		done
+		declare -i LineNum=0;
+		declare -i CurrentRawStartLineNum=0;
+		declare -i CurrentRawEndLineNum=0;
+		while read -r line; do
+		    LineNum+=1;
+		    if [[ "$line" =~ '{% raw %}' ]]; then
+			PreviousRaw="${CurrentRaw}";
+			CurrentRaw="${BASH_REMATCH[0]}";
+			PreviousRawStartLineNum=$CurrentRawStartLineNum;
+			CurrentRawStartLineNum=$LineNum;
+		    elif [[ "$line" =~ '{% endraw %}' ]]; then
+			PreviousRawEndLineNum="$CurrentRawEndLineNum";
+			CurrentRawEndLineNum="$LineNum";
+			
+			if grep --color=auto -q -i 'class="source_link"' <<< "${CurrentRaw//$'\n'/}" \
+				&& grep -qF '<div class="cell border-box-sizing code_cell rendered"><div class="output_wrapper"><div class="output"><div class="output_area"><div class="output_markdown rendered_html output_subarea "><h2' <<< "${CurrentRaw//$'\n'/}" \
+				&& grep -qF '<div class=" highlight hl-ipython3"><pre><span></span>' <<<"$PreviousRaw"; then
+			    printf '%s\n' "found source link lines:" "${CurrentRaw}${BASH_REMATCH[0]}" "in $f";
+			    mod1=$(grep -oP '(?<=href=)".*(?=( class="source_link"))' <<<"${CurrentRaw//$'\n'/}" );
+			    
+			    # TODO: in the previous raw block, if this exist in the previous rawblock which it should since we tested for it:
+			    #<div class=" highlight hl-ipython3"><pre><span></span>			    
+			    # replace it with this:
+			    #<div class=" highlight hl-ipython3"><pre><span><a href=$mod1 class="source_link" style="float:top">[source]</a></span>	
+			    string="<div class=\" highlight hl-ipython3\"><pre><span><a href=$mod1 class=\"source_link\" style=\"float:top\">[source]</a></span>"
+			    repstring=$(sed_esc_rep "$string")
+			    
+			    sed -i "$PreviousRawStartLineNum,$PreviousRawEndLineNum s/<div class=\" highlight hl-ipython3\"><pre><span><\/span>/$repstring/g" "$f";
+			    # then delete the current block
+			    sed -i "$CurrentRawStartLineNum,$CurrentRawEndLineNum s/.*//g" "$f";
+			    
+			    # and then continue with the next file
+			    continue 3
+			    
+			fi;
+		    else
+			CurrentRaw+="$line"$'\n';
+		    fi;
+		done < "$f";
+		# TODO: if we are here, then we did not reach continue 3 above, so we can add this file to the list of Finished
+		Finished+=("$f")
+		CurrentlyFinished=$((CurrentlyFinished+1))
+	    done
+	}
+        while [[ $total -gt $CurrentlyFinished ]]; do
+	    check
+	done
+    }
+    clean_fix_script2
     # mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ;
     # CurrentRaw="" ;
     # for f in "${DocFiles[@]}" ; do
