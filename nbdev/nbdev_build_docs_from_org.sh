@@ -105,14 +105,22 @@ nbdev_build_docs_from_org()(
 EOF
 	  )
     echo "$init" > "$initfile"
-
+    
     nbs_path="$(grep -E '^nbs_path' "$dir"/settings.ini | cut -f 3 -d ' ')"
     nbs_path_full=$(readlink -f "$dir"/"$nbs_path")
     doc_path="$(grep -E '^doc_path' "$dir"/settings.ini | cut -f 3 -d ' ')"
     doc_path_full=$(readlink -f "$dir"/"$doc_path")
     lib_name="$(grep -E '^lib_name' "$dir"/settings.ini | cut -f 3 -d ' ')"
     #lib_name_full=$(readlink -f "$dir"/"$lib_name")
-
+    lib_path=$( lib_path="$(grep -E '^lib_path' "$dir"/settings.ini | cut -f 3 -d ' ')" ; \
+	if [[ "$lib_path" = '%(lib_name)s' ]]; then \
+	    echo "$lib_name" ; \
+	else \
+	    lib_path="$(grep -E '^lib_path' "$dir"/settings.ini | cut -f 3 -d ' ')"; \
+	    echo "$lib_path"; \
+	fi ; \
+	    )
+    
     # dependencies
     gem install bundler:2.0.2
     # due to warnings like "Ignoring commonmarker-0.17.13 because its extensions are not built. Try: gem pristine commonmarker --version 0.17.1" when running gem install bundler we could install those things too:
@@ -602,6 +610,15 @@ EOF
 	done
     }
     clean_fix_script2
+    clean_fix_script3()(
+	cd "$dir"
+	mapfile -t LibFiles < <(find "$lib_path" -iname '*.py');
+	for f in "${LibFiles[@]}";
+	do	
+	    sed -i '/^# END_OF_MODULE$/q' "$f"
+	done
+    )
+    clean_fix_script3
     # mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ;
     # CurrentRaw="" ;
     # for f in "${DocFiles[@]}" ; do
@@ -616,6 +633,5 @@ EOF
     # 		    mod="${mod}" ;
     # 		    if ! grep -qF "${CurrentRaw}${BASH_REMATCH[0]}" "$doc_path"/${mod}_temp.html ;
     # 		    then echo "${CurrentRaw}${BASH_REMATCH[0]}" >> "$doc_path"/${mod}_temp.html ; fi ; CurrentRaw="" ; fi ; else CurrentRaw+="$line" ; fi ; done < "$f" ; done
-
 )
 nbdev_build_docs_from_org "$@"
