@@ -24,7 +24,10 @@ nbdev_build_docs_from_org()(
 	    shift 2
 	elif [[ "$1" == "--keep-subs" ]]; then
 	    subs=yes
-	    shift 1	    
+	    shift 1
+	elif [[ "$1" == "--fix-rel-imports" ]]; then
+	    fix_rel_imports=yes
+	    shift 1
 	else
 	    shift
 	fi
@@ -619,6 +622,19 @@ EOF
 	done
     )
     clean_fix_script3
+
+    # fix relative imports, so you can run pytest --pyargs mylib mylib from repo root.
+    clean_fix_script4()(
+	cd "$dir"
+	lib="$lib_name"
+	mapfile -t LibFiles < <(find "$lib_path" -iname '*.py');
+	for f in "${LibFiles[@]}";
+	do
+	    sed -i "s/\(^\s\?from \)\(\.\+\)/\1$lib./g" "$f"
+	done
+    )
+    if [[ "$fix_rel_imports" == yes ]]; then
+	clean_fix_script4; fi
     # mapfile -t DocFiles < <(find "$doc_path" -iname '*_temp.html') ;
     # CurrentRaw="" ;
     # for f in "${DocFiles[@]}" ; do
